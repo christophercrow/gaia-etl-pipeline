@@ -1,15 +1,16 @@
-version: "3.9"
 services:
   db:
-    image: postgis/postgis:15-3.3  # PostgreSQL 15 with PostGIS 3.3
+    image: postgis/postgis:15-3.3
     environment:
       POSTGRES_USER: gaia
       POSTGRES_PASSWORD: mysecretpassword
       POSTGRES_DB: gaia
     volumes:
-      - gaia-db-data:/var/lib/postgresql/data  # persist data locally
+      - gaia-db-data:/var/lib/postgresql/data
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
     ports:
-      - "5433:5432"  # expose DB if needed for psql
+      - "5433:5432"
+
   etl:
     build:
       context: .
@@ -18,7 +19,7 @@ services:
       - db
     environment:
       DATABASE_URL: postgresql://gaia:mysecretpassword@db:5432/gaia
-    # The ETL container will be invoked manually as needed (no long-running command here)
+
   api:
     build:
       context: .
@@ -28,7 +29,7 @@ services:
     environment:
       DATABASE_URL: postgresql://gaia:mysecretpassword@db:5432/gaia
     ports:
-      - "8000:8000"  # FastAPI accessible on localhost:8000
+      - "8000:8000"
+
 volumes:
   gaia-db-data:
-

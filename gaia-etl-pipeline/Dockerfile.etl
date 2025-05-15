@@ -1,17 +1,6 @@
-# Dockerfile.etl
-
 FROM python:3.10-slim
-
-# set workdir
 WORKDIR /app
-
-# install system deps (if needed) and Python deps
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-
-# copy ETL code
 COPY etl/ ./etl
-
-# default command runs the ETL pipeline
 ENTRYPOINT ["python", "-m", "etl"]
-
