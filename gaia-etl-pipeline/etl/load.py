@@ -1,32 +1,53 @@
-import psycopg2
-import io
+import os
+import time
 import logging
-from dask.dataframe import DataFrame as DaskDataFrame
+import dask.dataframe as dd
+from sqlalchemy import create_engine
 
-def copy_partition_to_db(pdf, conn):
-    csv_buffer = io.StringIO()
-    pdf.to_csv(csv_buffer, index=False, header=False)
-    csv_buffer.seek(0)
-    cols = ",".join(pdf.columns)
-    with conn.cursor() as cur:
-        cur.copy_expert(
-            f"COPY gaia_source({cols}) FROM STDIN WITH (FORMAT CSV)",
-            csv_buffer
-        )
-    conn.commit()
+def load_dask_dataframe_to_db(df: dd.DataFrame, db_url: str):
+    """
+    Writes a Dask DataFrame to a PostgreSQL database using SQLAlchemy.
 
-def load_dask_dataframe_to_db(df: DaskDataFrame, db_dsn: str):
-    logging.info("Connecting to DB")
-    conn = psycopg2.connect(db_dsn)
-    total = df.npartitions
-    logging.info(f"Loading {total} partitions")
-    for i in range(total):
-        logging.info(f"Loading partition {i+1}/{total}")
-        pdf = df.get_partition(i).compute()
+    Each partition is processed and inserted in bulk using pandas and `to_sql`.
+
+    Args:
+        df (dd.DataFrame): Transformed Gaia data.
+        db_url (str): SQLAlchemy-compatible database URL.
+    """
+    engine = create_engine(db_url)
+    total_parts = df.npartitions
+
+    logging.info(f"[load] Connecting to database at {db_url}")
+    logging.info(f"[load] Preparing to write {total_parts} partitions")
+
+    overall_start = time.time()
+    delayed_parts = df.to_delayed()
+
+    for idx, part in enumerate(delayed_parts, start=1):
         try:
-            copy_partition_to_db(pdf, conn)
+            part_start = time.time()
+            pdf = dd.from_delayed(part).compute()
+            pdf.to_sql(
+                "gaia_source",
+                engine,
+                if_exists="append",
+                index=False,
+                method="multi",
+                chunksize=10000
+            )
+            logging.info(f"[load] Partition {idx}/{total_parts} inserted in {time.time() - part_start:.2f}s")
         except Exception as e:
-            logging.error(f"Error on partition {i+1}: {e}")
-            conn.rollback()
-            continue
-    conn.close()
+            logging.error(f"[load] Failed to insert partition {idx}: {e}")
+
+    logging.info(f"[load] All partitions processed in {time.time() - overall_start:.2f}s")
+
+if __name__ == "__main__":
+    from etl.fetch import load_gaia_dataframe
+    from etl.transform import process_gaia_dataframe
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+
+    df = load_gaia_dataframe()
+    df = process_gaia_dataframe(df)
+    db_url = os.getenv("DATABASE_URL", "postgresql://gaia:mysecretpassword@db:5432/gaia")
+    load_dask_dataframe_to_db(df, db_url)

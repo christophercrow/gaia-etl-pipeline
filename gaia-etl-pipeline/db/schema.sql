@@ -1,7 +1,7 @@
--- Enable PostGIS
+-- Enable PostGIS extension for spatial queries
 CREATE EXTENSION IF NOT EXISTS postgis;
 
--- Parent partitioned table
+-- Create parent partitioned table for Gaia source data
 CREATE TABLE IF NOT EXISTS gaia_source (
     source_id BIGINT NOT NULL,
     ra DOUBLE PRECISION,
@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS gaia_source (
     geom GEOMETRY(Point, 4326)
 ) PARTITION BY HASH (source_id);
 
--- Create 16 hash partitions with zero-padded names
+-- Create 16 hash partitions with padded names (e.g., gaia_source_part_00)
 DO $$
 DECLARE
   i INT;
@@ -21,14 +21,15 @@ DECLARE
 BEGIN
   FOR i IN 0..15 LOOP
     part_name := lpad(i::text, 2, '0');
-    EXECUTE
-      'CREATE TABLE IF NOT EXISTS gaia_source_part_' || part_name || 
-      ' PARTITION OF gaia_source FOR VALUES WITH (MODULUS 16, REMAINDER ' || i || ')';
+    EXECUTE format(
+      'CREATE TABLE IF NOT EXISTS gaia_source_part_%s PARTITION OF gaia_source FOR VALUES WITH (MODULUS 16, REMAINDER %s)',
+      part_name, i
+    );
   END LOOP;
 END
 $$;
 
--- Create GIST index on each partition
+-- Create spatial indexes for each partition
 DO $$
 DECLARE
   i INT;
@@ -36,9 +37,10 @@ DECLARE
 BEGIN
   FOR i IN 0..15 LOOP
     part_name := lpad(i::text, 2, '0');
-    EXECUTE
-      'CREATE INDEX IF NOT EXISTS idx_gaia_geom_part_' || part_name || 
-      ' ON gaia_source_part_' || part_name || ' USING GIST (geom)';
+    EXECUTE format(
+      'CREATE INDEX IF NOT EXISTS idx_gaia_geom_part_%s ON gaia_source_part_%s USING GIST (geom)',
+      part_name, part_name
+    );
   END LOOP;
 END
 $$;

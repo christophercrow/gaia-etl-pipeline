@@ -1,6 +1,8 @@
 -- fix_partitions.sql
+-- This script ensures clean partitioning for the `gaia_source` table.
+-- It drops malformed partitions, recreates correct ones, and sets up spatial indexes.
 
--- 1) Drop any mis-named partitions with spaces in their names
+-- 1) Drop any partitions with invalid names (e.g. containing spaces)
 DO $$
 DECLARE
   r RECORD;
@@ -10,9 +12,9 @@ BEGIN
     FROM information_schema.tables
     WHERE table_schema = 'public'
       AND table_name LIKE 'gaia_source_part_%'
-      AND table_name LIKE '% %'  -- names containing spaces
-  )
-  LOOP
+      AND table_name LIKE '% %'  -- detect names with spaces
+  ) LOOP
+    RAISE NOTICE 'Dropping malformed partition: %', r.table_name;
     EXECUTE format('DROP TABLE IF EXISTS %I', r.table_name);
   END LOOP;
 END
@@ -26,9 +28,11 @@ DECLARE
 BEGIN
   FOR i IN 0..15 LOOP
     part_name := lpad(i::text, 2, '0');
-    EXECUTE
-      'CREATE TABLE IF NOT EXISTS gaia_source_part_' || part_name ||
-      ' PARTITION OF gaia_source FOR VALUES WITH (MODULUS 16, REMAINDER ' || i || ')';
+    EXECUTE format('
+      CREATE TABLE IF NOT EXISTS gaia_source_part_%s
+      PARTITION OF gaia_source
+      FOR VALUES WITH (MODULUS 16, REMAINDER %s)
+    ', part_name, i);
   END LOOP;
 END
 $$;
@@ -41,10 +45,10 @@ DECLARE
 BEGIN
   FOR i IN 0..15 LOOP
     part_name := lpad(i::text, 2, '0');
-    EXECUTE
-      'CREATE INDEX IF NOT EXISTS idx_gaia_geom_part_' || part_name ||
-      ' ON gaia_source_part_' || part_name || ' USING GIST (geom)';
+    EXECUTE format('
+      CREATE INDEX IF NOT EXISTS idx_gaia_geom_part_%s
+      ON gaia_source_part_%s USING GIST (geom)
+    ', part_name, part_name);
   END LOOP;
 END
 $$;
-

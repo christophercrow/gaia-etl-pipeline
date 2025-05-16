@@ -1,8 +1,11 @@
-fastapi==0.95.1
-uvicorn[standard]==0.22.0
-psycopg2-binary==2.9.7
 dask[complete]==2025.4.0
+pandas==2.2.2
+sqlalchemy==2.0.18
+psycopg2-binary==2.9.7
 requests==2.31.0
 aiohttp==3.8.4
-pytest==7.3.1
+fastapi==0.95.1
+uvicorn[standard]==0.22.0
 httpx==0.24.1
+pytest==7.3.1
+astroquery==0.4.6
